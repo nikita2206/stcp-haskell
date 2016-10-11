@@ -19,9 +19,9 @@ import Control.Monad.Fix (fix)
 import Control.Exception.Base
 import Data.Binary
 
-data RoomEvent = RoomNewClient { username :: Text}
-  | RoomClientLeft { username :: Text}
-  | RoomMessage { username :: Text, message :: Text }
+data RoomEvent = RoomNewClient { username :: ByteString }
+  | RoomClientLeft { username :: ByteString }
+  | RoomMessage { username :: ByteString, message :: ByteString }
 
 data ClientFrameType = CFTHey | CFTMyNameIs | CFTSup | CFTRememberMe
   | CFTListClients | CFTMessage | CFTLogout
@@ -30,8 +30,8 @@ data ServerFrame = SFTHey Int
   | SFTSup
   | SFTNope
   | SFTUserError Word16 ByteString
-  | SFTNewToken Text
-  | SFTClients [Text]
+  | SFTNewToken ByteString
+  | SFTClients [ByteString]
   | SFTRoomEvent RoomEvent
 
 server :: IO ()
@@ -103,3 +103,20 @@ instance Binary ServerFrame where
     put (length message :: Word16)
     put message
   get = undefined
+
+instance Binary RoomEvent where
+  get = undefined
+  put (RoomNewClient username) = do
+    put (0x01 :: Word8)
+    put (length username :: Word8)
+    put username
+  put (RoomClientLeft username) = do
+    put (0x02 :: Word8)
+    put (length username :: Word8)
+    put username
+  put (RoomMessage username message) = do
+    put (0x03 :: Word8)
+    put (length username :: Word8)
+    put username
+    put (length message :: Word64)
+    put message
