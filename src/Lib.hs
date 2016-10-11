@@ -88,13 +88,10 @@ decodeFrameType frame = case frame of
 readRoomEventChannel :: Socket -> Int -> Chan (Int, RoomEvent) -> IO ()
 readRoomEventChannel socket clientId chan = do
   (causedByClientId, event) <- readChan chan
-  when (clientId /= causedByClientId) $ sendAll socket (renderEvent event)
+  when (clientId /= causedByClientId) $ sendAll socket event
   readRoomEventChannel socket clientId chan
 
 discardEx = handle (\(SomeException _) -> return ())
-
-renderEvent :: RoomEvent -> ByteString
-renderEvent = undefined
 
 instance Binary ServerFrame where
   put (SFTUserError code message) = do
