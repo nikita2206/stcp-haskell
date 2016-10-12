@@ -60,7 +60,7 @@ acceptingLoop s ch clientId = do
 serveClient :: (Socket, SockAddr) -> Chan (Int, RoomEvent) -> Int -> IO ()
 serveClient (s, _) ch clientId = do
   let broadcast event = writeChan ch (clientId, event)
-  let specReceiveFrame frame = receiveFrame clientId ch s frame
+  let specReceiveFrame = receiveFrame clientId ch s
 
   channelReader <- forkIO $ dupChan ch >>= readRoomEventChannel s clientId
 
@@ -74,7 +74,7 @@ receiveFrame :: Int -> Chan (Int, RoomEvent) -> Socket -> Word8 -> IO ()
 receiveFrame clientId ch s frame = do
   case decodeFrameType frame of
     Just cft -> undefined
-    Nothing -> SL.sendAll s $ encode $ SFTUserError 1 (BSC.pack $ "Unexpected frame: " ++ (show frame))
+    Nothing -> SL.sendAll s $ encode $ SFTUserError 1 (BSC.pack $ "Unexpected frame: " ++ show frame)
   return ()
 
 decodeFrameType :: Word8 -> Maybe ClientFrameType
