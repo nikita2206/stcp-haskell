@@ -5,23 +5,26 @@ module Lib
     ) where
 
 import Unsafe.Coerce (unsafeCoerce)
-import Prelude hiding (length, head)
-import Data.Text hiding (length, head, pack)
-import Data.Word
-import Data.ByteString
-import Network.Socket hiding (send, sentTo, recv, recvFrom)
-import Network.Socket.ByteString
-import System.IO
-import Control.Concurrent
-import Control.Concurrent.Chan
-import Control.Monad (liftM, when)
+import qualified Data.Text as T
+import Data.Word (Word8, Word16, Word64)
+import qualified Data.ByteString as B
+import qualified Data.ByteString.Lazy as BL
+import qualified Data.ByteString.Char8 as BSC
+import Network.Socket (Socket, SockAddr (SockAddrInet), setSocketOption
+                     , accept, listen, bind, iNADDR_ANY, SocketOption (ReuseAddr)
+                    , SocketType (Stream), Family (AF_INET), socket)
+import qualified Network.Socket.ByteString as S
+import qualified Network.Socket.ByteString.Lazy as SL
+import Control.Concurrent (forkIO, killThread)
+import Control.Concurrent.Chan (Chan, newChan, dupChan, writeChan, readChan)
+import Control.Monad (when)
 import Control.Monad.Fix (fix)
 import Control.Exception.Base
-import Data.Binary
+import Data.Binary (Binary, put, get, encode)
 
-data RoomEvent = RoomNewClient { username :: ByteString }
-  | RoomClientLeft { username :: ByteString }
-  | RoomMessage { username :: ByteString, message :: ByteString }
+data RoomEvent = RoomNewClient { username :: B.ByteString }
+  | RoomClientLeft { username :: B.ByteString }
+  | RoomMessage { username :: B.ByteString, message :: B.ByteString }
 
 data ClientFrameType = CFTHey | CFTMyNameIs | CFTSup | CFTRememberMe
   | CFTListClients | CFTMessage | CFTLogout
@@ -29,9 +32,9 @@ data ClientFrameType = CFTHey | CFTMyNameIs | CFTSup | CFTRememberMe
 data ServerFrame = SFTHey Int
   | SFTSup
   | SFTNope
-  | SFTUserError Word16 ByteString
-  | SFTNewToken ByteString
-  | SFTClients [ByteString]
+  | SFTUserError Word16 B.ByteString
+  | SFTNewToken B.ByteString
+  | SFTClients [B.ByteString]
   | SFTRoomEvent RoomEvent
 
 server :: IO ()
@@ -62,8 +65,8 @@ serveClient (s, _) ch clientId = do
   channelReader <- forkIO $ dupChan ch >>= readRoomEventChannel s clientId
 
   discardEx $ fix $ \loop -> do
-    frame <- recv s 1
-    when (length frame == 1) $ specReceiveFrame (head frame) >> loop
+    frame <- S.recv s 1
+    when (B.length frame == 1) $ specReceiveFrame (B.head frame) >> loop
 
   killThread channelReader
 
@@ -71,7 +74,7 @@ receiveFrame :: Int -> Chan (Int, RoomEvent) -> Socket -> Word8 -> IO ()
 receiveFrame clientId ch s frame = do
   case decodeFrameType frame of
     Just cft -> undefined
-    Nothing -> sendAll s $ SFTUserError 1 (pack $ "Unexpected frame: " ++ [unsafeCoerce frame])
+    Nothing -> SL.sendAll s $ encode $ SFTUserError 1 (BSC.pack $ "Unexpected frame: " ++ (show frame))
   return ()
 
 decodeFrameType :: Word8 -> Maybe ClientFrameType
@@ -88,7 +91,7 @@ decodeFrameType frame = case frame of
 readRoomEventChannel :: Socket -> Int -> Chan (Int, RoomEvent) -> IO ()
 readRoomEventChannel socket clientId chan = do
   (causedByClientId, event) <- readChan chan
-  when (clientId /= causedByClientId) $ sendAll socket event
+  when (clientId /= causedByClientId) $ SL.sendAll socket (encode event)
   readRoomEventChannel socket clientId chan
 
 discardEx = handle (\(SomeException _) -> return ())
@@ -96,8 +99,8 @@ discardEx = handle (\(SomeException _) -> return ())
 instance Binary ServerFrame where
   put (SFTUserError code message) = do
     put (0x04 :: Word8)
-    put (code :: Word16)
-    put (length message :: Word16)
+    put (unsafeCoerce code :: Word16)
+    put ((unsafeCoerce $ B.length message) :: Word16)
     put message
   get = undefined
 
@@ -105,15 +108,15 @@ instance Binary RoomEvent where
   get = undefined
   put (RoomNewClient username) = do
     put (0x01 :: Word8)
-    put (length username :: Word8)
+    put ((unsafeCoerce $ B.length username) :: Word8)
     put username
   put (RoomClientLeft username) = do
     put (0x02 :: Word8)
-    put (length username :: Word8)
+    put ((unsafeCoerce $ B.length username) :: Word8)
     put username
   put (RoomMessage username message) = do
     put (0x03 :: Word8)
-    put (length username :: Word8)
+    put ((unsafeCoerce $ B.length username) :: Word8)
     put username
-    put (length message :: Word64)
+    put ((unsafeCoerce $ B.length message) :: Word64)
     put message
